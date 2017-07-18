@@ -1,7 +1,7 @@
 ###
-format begins with 54 43 46 31 0C
-  TCF1 and OC
-  then 3 nulls
+format begins with 54 43 46 31
+  TCF1
+  then 4 bytes containing the hwid (0c000000, 04000000, etc)
 
 then key value pairs separated by nulls
 
@@ -26,11 +26,12 @@ class NvramParser
   @formatHexString: (hexstring) -> hexstring.toLowerCase().replace /\s/g, ""
 
   # define format
-  @header: "54 43 46 31 0C 00 00 00"
+  @header: "54 43 46 31"
   @footer: "00 00"
   @headerbuf: buffertools.fromHex new Buffer @formatHexString @header
   @footerbuf: buffertools.fromHex new Buffer @formatHexString @footer
   @separator: "\u0000"
+  @hwid_keyname: "_nvramcfg_saved_hwid_hex"
 
   # validate that buffer is bookended by header/footer
   @validate: (buf) ->
@@ -65,6 +66,12 @@ class NvramParser
     bound = 0
     settings = {}
 
+    # extract the hwid
+    if body.length < 4
+      return @error "body too small"
+    settings[@hwid_keyname] = buffertools.toHex body[..3]
+    body = body[4..]
+
     # loop through each null character
     while -1 < bound < body.length
       bound = buffertools.indexOf body, @separator, 0
@@ -80,6 +87,7 @@ class NvramParser
       pair = pair.toString "utf8"
       eq   = pair.indexOf "="
       key  = pair[..eq-1]
+      if key is @hwid_keyname then continue
       val  = pair[eq+1..]
       settings[key] = val
 
@@ -95,11 +103,18 @@ class NvramParser
   @encode: (filename, format = "original", autocb) =>
     json = fs.readFileSync filename
     settings = JSON.parse json
+    hwid_hex = null
 
     # create buffer from key:value pairs and append null char
     pairs = for key, value of settings
+      if key is @hwid_keyname
+        hwid_hex = value
+        continue
       pair = new Buffer "#{key}=#{value}"
       buffertools.concat pair, @separator
+
+    if hwid_hex and hwid_hex.length isnt 8
+      return @error "saved hardware id invalid format"
 
     # strip null character from last line or tomato complains "Extra data found at the end."
     last = pairs[pairs.length-1]
@@ -107,7 +122,7 @@ class NvramParser
 
     switch format.toLowerCase()
       when "original"
-        await @encodeOriginal pairs, defer encoded
+        await @encodeOriginal pairs, hwid_hex, defer encoded
       when "arm"
         await NvramArm.encode pairs, defer encoded
       else
@@ -116,9 +131,12 @@ class NvramParser
     encoded
 
   # (async) load JSON file and pack in Tomato NVRAM cfg binary format
-  @encodeOriginal: (pairs, autocb) =>
+  @encodeOriginal: (pairs, hwid_hex, autocb) =>
+    # if there's no hwid_hex then use the default from older nvramcfg
+    if not hwid_hex then hwid_hex = "0c000000"
+    hwid_buf = buffertools.fromHex new Buffer hwid_hex
     # bookend key=value pairs with header/footer
-    buf = buffertools.concat @headerbuf, pairs..., @footerbuf
+    buf = buffertools.concat @headerbuf, hwid_buf, pairs..., @footerbuf
     await zlib.gzip buf, defer err, fz
     return @error err if err
     fz
