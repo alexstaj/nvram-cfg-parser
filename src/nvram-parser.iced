@@ -89,8 +89,8 @@ class NvramParser
   @decode: (filename, autocb) =>
     await @loadFile filename, defer buf
     settings = @parse buf
-    if @pretty then JSON.stringify settings, null, 2
-    else            JSON.stringify settings
+    if @pretty then JSON.stringify settings, Object.keys(settings).sort(), 2
+    else            JSON.stringify settings, Object.keys(settings).sort()
 
   @encode: (filename, format = "original", autocb) =>
     json = fs.readFileSync filename
