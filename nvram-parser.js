@@ -184,10 +184,10 @@ format ends with two nulls
       })(function() {
         settings = NvramParser.parse(buf);
         if (NvramParser.pretty) {
-          autocb(JSON.stringify(settings, null, 2));
+          autocb(JSON.stringify(settings, Object.keys(settings).sort(), 2));
           return;
         } else {
-          autocb(JSON.stringify(settings));
+          autocb(JSON.stringify(settings, Object.keys(settings).sort()));
           return;
         }
       });
